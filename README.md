@@ -1,35 +1,35 @@
 # PayFlowNG: Transaction Fraud Detection Analysis
 
 ## Problem Statement
-This project demonstrates a rules-based approach to flagging potentially fraudulent transactions using SQL — identifying transactions that deviate from normal account behavior across three distinct patterns, then quantifying and visualizing the results in Excel for stakeholder review.
+Built to test a rules-based fraud detection approach in SQL — flagging transactions that break from normal account behavior across three patterns, then summarizing the results in Excel the way a fraud team would actually review them.
 
 ## Data Source
-**PaySim** (Kaggle) — a real, publicly available synthetic financial transaction dataset simulating fintech payment activity. A 60,010-transaction sample was drawn using day-partitioned random sampling across the full 30-day window.
+**PaySim** (Kaggle) — a real, publicly available synthetic financial transaction dataset simulating fintech payment activity. Sampled 60,010 transactions across the full 30-day window using day-partitioned random sampling.
 
-**Note on sample size:** an initial 10,000-transaction sample (consistent with the size used in the reconciliation project) returned only 2 flagged transactions — too sparse to produce a meaningful risk summary. The sample was expanded to ~60,000 transactions specifically to surface enough repeated account activity for the velocity and repeated-amount checks to function, since fraud pattern detection depends on accounts appearing multiple times in the dataset.
+**Why 60,000 and not 10,000:** I first tried a 10,000-row sample, same size as my reconciliation project. It only returned 2 flagged transactions — not enough to build anything meaningful from. Fraud patterns depend on the same account showing up more than once, and a smaller sample just didn't have enough repeated activity. Bumped it up to ~60,000 to fix that.
 
 ## Detection Methodology
-Three fraud patterns were flagged using SQL:
-- **High Value Anomaly** — a transaction exceeding 3x the receiving account's average transaction amount
-- **High Velocity** — an account receiving more than one transaction within the same hourly `step`
-- **Repeated Amount** — the same account receiving the identical transaction amount more than once
+Three checks, run as one combined SQL query:
+- **High Value Anomaly** — a transaction more than 3x the receiving account's average
+- **High Velocity** — an account receiving more than one transaction in the same hour
+- **Repeated Amount** — the same account charged the identical amount more than once
 
-**Note on account identifier:** PaySim's `nameOrig` (originating account) field is effectively unique per transaction in this dataset and never repeats — making it unusable for detecting account-level behavioral patterns, which by definition require an account to appear more than once. `nameDest` (receiving account) was used instead, since it shows genuine repetition across the sample.
+**A real snag worth mentioning:** PaySim's `nameOrig` field (the sending account) turned out to be unique per transaction — it never repeats, so there's no behavior pattern to actually detect on that column. I switched to `nameDest` (the receiving account), which does repeat in the data.
 
-Each transaction was compared against account-level windowed averages and grouped counts via SQL (CTEs, window functions, and CASE logic), with all three checks combined into a single query and cross-checked with a final result count before export.
+Built with CTEs, window functions, and a CASE statement to combine all three checks into one query, then cross-checked the row count before exporting.
 
 ## Findings
-- **40 transactions flagged** out of 60,010 (0.07% of the sample)
-- **All 40 flags were High Velocity** — zero High Value Anomaly, zero Repeated Amount
+- **40 transactions flagged** out of 60,010 — 0.07% of the sample
+- **All 40 were High Velocity.** Zero High Value Anomaly, zero Repeated Amount
 - **Total flagged value: ₦30,089,960.13**
-- Flagged amounts ranged widely, from roughly ₦2,600 to over ₦649,000 per transaction, visualized via a color scale in the Excel summary to surface the highest-value flags at a glance
+- Flagged amounts ranged from about ₦2,600 up to ₦649,000+, color-scaled in Excel so the highest-value ones stand out
 
-**Why only velocity flags appeared:** receiving accounts in this sample typically repeat only 2–3 times each. With so few transactions per account, there's limited statistical room for a transaction to exceed 3x a very small average, or for an exact amount to repeat — but velocity only requires two transactions to land in the same hourly window, a much lower bar. This is a genuine characteristic of the sampled data, not a flaw in the detection logic.
+**Why it's all velocity:** most receiving accounts in this sample only show up 2-3 times. That's too few transactions for "3x above average" to mean much, or for an exact amount to repeat — but velocity only needs two transactions in the same hour, which is a much lower bar to clear. Not a bug, just a real limit of working with a sampled dataset instead of full transaction history.
 
 ## Recommendations
-1. **Velocity thresholds should be re-tuned against real transaction-level timestamps, not hourly buckets.** This dataset's `step` field only provides hour-level granularity; a production system with true minute- or second-level timestamps would very likely surface additional High Velocity flags that this coarser grouping missed, and would reduce false positives from transactions that merely happen to share an hour.
-2. **High Value Anomaly and Repeated Amount checks need a larger transaction history per account to be meaningful.** With only 2–3 transactions per account in this sample, these checks are effectively under-powered. In a live system with full transaction history per customer, both checks would likely surface real results — this sample simply doesn't have enough repeated activity per account to test them properly.
-3. **Given the current findings, monitoring effort should prioritize velocity-based review first**, since it's the only pattern with enough signal in this sample to act on — while treating the value and repeated-amount checks as validated logic awaiting a richer dataset, not failed detection methods.
+1. **Velocity should really be checked against real timestamps, not hourly buckets.** PaySim's `step` field is hour-level, so this is a rough proxy — a system with true minute-level data would likely catch more real velocity patterns and fewer false ones.
+2. **High Value Anomaly and Repeated Amount need more transactions per account to actually work.** With only 2-3 per account here, they're not being tested properly — not failed, just underpowered by the sample size.
+3. **For now, I'd prioritize reviewing the velocity flags first**, since that's the pattern with actual signal in this data. The other two checks are built and ready, just waiting on richer data to prove out.
 
 ## Files in this Repo
 - `fraud_detection_query.sql` — the combined SQL detection query
